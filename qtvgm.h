@@ -15,6 +15,9 @@ public:
     QtVGM(QWidget *parent = nullptr);
     ~QtVGM();
 
+private slots:
+  void newSong(const char* const* tagList);
+
 private:
     Ui::QtVGM *ui;
 };

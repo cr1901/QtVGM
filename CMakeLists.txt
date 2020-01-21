@@ -29,21 +29,14 @@ find_library(LIBVGM_PLAYER NAMES vgm-player)
 find_library(LIBVGM_EMU NAMES vgm-emu)
 find_library(LIBVGM_AUDIO NAMES vgm-audio)
 
-if(ANDROID)
-  add_library(qtvgm SHARED
-    main.cpp
-    qtvgm.cpp
-    qtvgm.h
-    qtvgm.ui
-  )
-else()
-  add_executable(qtvgm
-    main.cpp
-    qtvgm.cpp
-    qtvgm.h
-    qtvgm.ui
-  )
-endif()
+add_executable(qtvgm
+  main.cpp
+  qtvgm.cpp
+  qtvgm.h
+  playthread.cpp
+  playthread.hpp
+  qtvgm.ui
+)
 
 target_link_libraries(qtvgm PRIVATE Qt5::Widgets Qt5::Core ${LIBVGM_PLAYER}
   ${LIBVGM_EMU} ${LIBVGM_AUDIO})
