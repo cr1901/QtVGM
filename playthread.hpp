@@ -11,11 +11,12 @@ class PlayThread : public QThread
     Q_OBJECT
     VGMPlayer * player;
     const char * m3uFile = NULL;
+    char infoBuf[1024];
 
     void run() override;
 
     signals:
-      void newSong(const char* const* tagList);
+      void newSong(const char * tagList);
 
     public:
       PlayThread();

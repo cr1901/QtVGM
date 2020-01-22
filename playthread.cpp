@@ -162,52 +162,56 @@ void PlayThread::run() {
 	printf("VGM v%3X, Total Length: %.2f s, Loop Length: %.2f s", vgmhdr->fileVer,
 			player->Tick2Second(player->GetTotalTicks()), player->Tick2Second(player->GetLoopTicks()));
 
-	if (showTags)
+	const char* songTitle = NULL;
+	const char* songAuthor = NULL;
+	const char* songGame = NULL;
+	const char* songSystem = NULL;
+	const char* songDate = NULL;
+	const char* songComment = NULL;
+
+  const char* const* tagList = player->GetTags();
+	for (const char* const* t = tagList; *t; t += 2)
 	{
-		const char* songTitle = NULL;
-		const char* songAuthor = NULL;
-		const char* songGame = NULL;
-		const char* songSystem = NULL;
-		const char* songDate = NULL;
-		const char* songComment = NULL;
-
-		const char* const* tagList = player->GetTags();
-		for (const char* const* t = tagList; *t; t += 2)
-		{
-			if (!strcmp(t[0], "TITLE"))
-				songTitle = t[1];
-			else if (!strcmp(t[0], "ARTIST"))
-				songAuthor = t[1];
-			else if (!strcmp(t[0], "GAME"))
-				songGame = t[1];
-			else if (!strcmp(t[0], "SYSTEM"))
-				songSystem = t[1];
-			else if (!strcmp(t[0], "DATE"))
-				songDate = t[1];
-			else if (!strcmp(t[0], "COMMENT"))
-				songComment = t[1];
-		}
-
-		if (songTitle != NULL && songTitle[0] != '\0')
-			printf("\nSong Title: %s", songTitle);
-		if (songAuthor != NULL && songAuthor[0] != '\0')
-			printf("\nSong Author: %s", songAuthor);
-		if (songGame != NULL && songGame[0] != '\0')
-			printf("\nSong Game: %s", songGame);
-		if (songSystem != NULL && songSystem[0] != '\0')
-			printf("\nSong System: %s", songSystem);
-		if (songDate != NULL && songDate[0] != '\0')
-			printf("\nSong Date: %s", songDate);
-		if (songComment != NULL && songComment[0] != '\0')
-			printf("\nSong Comment: %s", songComment);
+		if (!strcmp(t[0], "TITLE"))
+			songTitle = t[1];
+		else if (!strcmp(t[0], "ARTIST"))
+			songAuthor = t[1];
+		else if (!strcmp(t[0], "GAME"))
+			songGame = t[1];
+		else if (!strcmp(t[0], "SYSTEM"))
+			songSystem = t[1];
+		else if (!strcmp(t[0], "DATE"))
+			songDate = t[1];
+		else if (!strcmp(t[0], "COMMENT"))
+			songComment = t[1];
 	}
+
+  UINT16 offset = 0;
+
+  // FIXME: Check that offset doesn't overflow.
+	if (songTitle != NULL && songTitle[0] != '\0')
+		offset += snprintf(&infoBuf[offset], 1024 - offset, "Title: %s", songTitle);
+	if (songAuthor != NULL && songAuthor[0] != '\0')
+    offset += snprintf(&infoBuf[offset], 1024 - offset, "\nAuthor: %s", songAuthor);
+	if (songGame != NULL && songGame[0] != '\0')
+    offset += snprintf(&infoBuf[offset], 1024 - offset, "\nGame: %s", songGame);
+	if (songSystem != NULL && songSystem[0] != '\0')
+    offset += snprintf(&infoBuf[offset], 1024 - offset, "\nSystem: %s", songSystem);
+	if (songDate != NULL && songDate[0] != '\0')
+    offset += snprintf(&infoBuf[offset], 1024 - offset, "\nDate: %s", songDate);
+	// if (songComment != NULL && songComment[0] != '\0')
+  //   offset += snprintf(&infoBuf[offset], 1024 - offset, "\nComment: %s", songComment);
+
+  emit newSong(infoBuf);
 
 	putchar('\n');
 
 	player->SetSampleRate(sampleRate);
 	player->Start();
 	fadeSmplTime = player->GetSampleRate() * 4;
-	fadeSmplStart = (UINT32)-1;
+
+  // TODO: Make this not hardcoded.
+	fadeSmplStart = player->Tick2Sample(player->GetTotalPlayTicks(maxLoops));
 
 	if (showFileInfo)
 	{
@@ -250,8 +254,6 @@ void PlayThread::run() {
 
 			if (playState & PLAYSTATE_PAUSE)
 				pState = "Paused";
-			else if (fadeSmplStart != (UINT32)-1)
-				pState = "Fading";
 			else
 				pState = "Playing";
 			printf("%s %.2f / %.2f ...   \r", pState, player->Sample2Second(player->GetCurPos(PLAYPOS_SAMPLE)),
@@ -303,10 +305,6 @@ void PlayThread::run() {
 			{
 				playState |= PLAYSTATE_END;
 				curSong = argc - 1;
-			}
-			else if (letter == 'F')	// fade out
-			{
-				fadeSmplStart = player->GetCurPos(PLAYPOS_SAMPLE);
 			}
 			needRefresh = true;
 		}

@@ -26,7 +26,7 @@ void QtVGM::startPlayer(const char * playList)
   playThread->start();
 }
 
-void QtVGM::newSong(const char* const* tagList)
+void QtVGM::newSong(const char* tagList)
 {
-  ui->textEdit->setText(tagList[0]);
+  ui->textEdit->setText(tagList);
 }

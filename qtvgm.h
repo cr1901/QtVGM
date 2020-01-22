@@ -18,7 +18,7 @@ public:
     void startPlayer(const char * playList);
 
 private slots:
-  void newSong(const char* const* tagList);
+  void newSong(const char* tagList);
 
 private:
     Ui::QtVGM *ui;
