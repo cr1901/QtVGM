@@ -11,6 +11,7 @@ QtVGM::QtVGM(QWidget *parent)
     ui->setupUi(this);
     ui->textEdit->setFocusPolicy(Qt::NoFocus);
     setFocusPolicy(Qt::StrongFocus);
+    setWindowIcon(QIcon(":/icons/mainicon.ico"));
 
     playThread = new PlayThread();
 

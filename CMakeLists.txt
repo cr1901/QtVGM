@@ -39,6 +39,7 @@ add_executable(qtvgm
   playthread.cpp
   playthread.hpp
   qtvgm.ui
+  qtvgm.qrc
 )
 
 # FIXME: Audio libraries should be gated based on OS.
