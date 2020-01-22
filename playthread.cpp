@@ -23,6 +23,12 @@ extern "C" int __cdecl _kbhit(void);
 #define	Sleep(msec)	usleep(msec * 1000)
 #endif
 
+#ifdef WIN32
+#define DIR_CHR		'\\'
+#else
+#define DIR_CHR		'/'
+#endif
+
 #include "common_def.h"
 #include <playthread.hpp>
 #include <audio/AudioStream.h>
@@ -41,6 +47,10 @@ static UINT8 InitAudioSystem(void);
 static UINT8 DeinitAudioSystem(void);
 static UINT8 StartAudioDevice(void);
 static UINT8 StopAudioDevice(void);
+static bool OpenPlayListFile(const char* FileName, char*** PlayListFile);
+static void StandardizeDirSeparators(char* FilePath);
+char* GetLastDirSeparator(const char* FilePath);
+static bool IsAbsolutePath(const char* FilePath);
 #ifndef _WIN32
 static void changemode(UINT8 noEcho);
 static int _kbhit(void);
@@ -77,6 +87,10 @@ static bool showFileInfo = true;
 
 static VGMPlayer* vgmPlr;
 
+static char PLFileBase[MAX_PATH];
+UINT32 PLFileCount;
+UINT32 CurPLFile;
+
 PlayThread::PlayThread() {
   player = new VGMPlayer;
 }
@@ -86,23 +100,12 @@ void PlayThread::setM3u(const char * fileName) {
 }
 
 void PlayThread::run() {
-  int argc = 2;
-  const char * argv[2] = {"player", m3uFile};
-
-	int argbase;
 	UINT8 retVal;
 	DATA_LOADER *dLoad;
 	PlayerBase* player;
 	int curSong;
 	bool needRefresh;
 
-	if (argc < 2)
-	{
-		printf("Usage: %s inputfile\n", argv[0]);
-	//	return 0;
-    return;
-	}
-	argbase = 1;
 #ifdef _WIN32
 	SetConsoleOutputCP(65001);	// set UTF-8 codepage
 #endif
@@ -123,204 +126,225 @@ void PlayThread::run() {
 	// I'll keep the instances of the players for the program's life time.
 	// This way player/chip options are kept between track changes.
 	vgmPlr = new VGMPlayer;
+  char ** PlayListFileContents;
 
-	for (curSong = argbase; curSong < argc; curSong ++)
-	{
+  if(!OpenPlayListFile(m3uFile, &PlayListFileContents))
+  {
+    fprintf(stderr, "Error opening the playlist!\n");
+    return;
+  }
 
-	printf("Loading %s ...  ", GetFileTitle(argv[curSong]));
-	fflush(stdout);
-	player = NULL;
+  for (CurPLFile = 0x00; CurPLFile < PLFileCount; CurPLFile ++)
+  {
+    char vgmFile[MAX_PATH];
 
-	dLoad = FileLoader_Init(argv[curSong]);
-  //printf("%X, %X", curSong, dLoad->_status);
+  	// for (curSong = argbase; curSong < argc; curSong ++)
+  	// {
 
-	if(dLoad == NULL) continue;
+  	printf("Loading %s ...  ", GetFileTitle(PlayListFileContents[CurPLFile]));
+  	fflush(stdout);
+  	player = NULL;
 
-	DataLoader_SetPreloadBytes(dLoad,0x100);
-	retVal = DataLoader_Load(dLoad);
-	if (retVal)
-	{
-		DataLoader_CancelLoading(dLoad);
-		fprintf(stderr, "Error 0x%02X loading file!\n", retVal);
-		continue;
-	}
+    if (IsAbsolutePath(PlayListFileContents[CurPLFile]))
+    {
+      strcpy(vgmFile, PlayListFileContents[CurPLFile]);
+    }
+    else
+    {
+      strcpy(vgmFile, PLFileBase);
+      strcat(vgmFile, PlayListFileContents[CurPLFile]);
+    }
 
-	player = vgmPlr;
-	retVal = player->LoadFile(dLoad);
+  	dLoad = FileLoader_Init(vgmFile);
+    //printf("%X, %X", curSong, dLoad->_status);
 
-	if (retVal)
-	{
-		DataLoader_CancelLoading(dLoad);
-		player = NULL;
-		fprintf(stderr, "Error 0x%02X loading file!\n", retVal);
-		continue;
-	}
+  	if(dLoad == NULL) continue;
 
-	VGMPlayer* vgmplay = dynamic_cast<VGMPlayer*>(player);
-	const VGM_HEADER* vgmhdr = vgmplay->GetFileHeader();
+  	DataLoader_SetPreloadBytes(dLoad,0x100);
+  	retVal = DataLoader_Load(dLoad);
+  	if (retVal)
+  	{
+  		DataLoader_CancelLoading(dLoad);
+  		fprintf(stderr, "Error 0x%02X loading file!\n", retVal);
+  		continue;
+  	}
 
-	printf("VGM v%3X, Total Length: %.2f s, Loop Length: %.2f s", vgmhdr->fileVer,
-			player->Tick2Second(player->GetTotalTicks()), player->Tick2Second(player->GetLoopTicks()));
+  	player = vgmPlr;
+  	retVal = player->LoadFile(dLoad);
 
-	const char* songTitle = NULL;
-	const char* songAuthor = NULL;
-	const char* songGame = NULL;
-	const char* songSystem = NULL;
-	const char* songDate = NULL;
-	const char* songComment = NULL;
+  	if (retVal)
+  	{
+  		DataLoader_CancelLoading(dLoad);
+  		player = NULL;
+  		fprintf(stderr, "Error 0x%02X loading file!\n", retVal);
+  		continue;
+  	}
 
-  const char* const* tagList = player->GetTags();
-	for (const char* const* t = tagList; *t; t += 2)
-	{
-		if (!strcmp(t[0], "TITLE"))
-			songTitle = t[1];
-		else if (!strcmp(t[0], "ARTIST"))
-			songAuthor = t[1];
-		else if (!strcmp(t[0], "GAME"))
-			songGame = t[1];
-		else if (!strcmp(t[0], "SYSTEM"))
-			songSystem = t[1];
-		else if (!strcmp(t[0], "DATE"))
-			songDate = t[1];
-		else if (!strcmp(t[0], "COMMENT"))
-			songComment = t[1];
-	}
+  	VGMPlayer* vgmplay = dynamic_cast<VGMPlayer*>(player);
+  	const VGM_HEADER* vgmhdr = vgmplay->GetFileHeader();
 
-  UINT16 offset = 0;
+  	printf("VGM v%3X, Total Length: %.2f s, Loop Length: %.2f s", vgmhdr->fileVer,
+  			player->Tick2Second(player->GetTotalTicks()), player->Tick2Second(player->GetLoopTicks()));
 
-  // FIXME: Check that offset doesn't overflow.
-	if (songTitle != NULL && songTitle[0] != '\0')
-		offset += snprintf(&infoBuf[offset], 1024 - offset, "Title: %s", songTitle);
-	if (songAuthor != NULL && songAuthor[0] != '\0')
-    offset += snprintf(&infoBuf[offset], 1024 - offset, "\nAuthor: %s", songAuthor);
-	if (songGame != NULL && songGame[0] != '\0')
-    offset += snprintf(&infoBuf[offset], 1024 - offset, "\nGame: %s", songGame);
-	if (songSystem != NULL && songSystem[0] != '\0')
-    offset += snprintf(&infoBuf[offset], 1024 - offset, "\nSystem: %s", songSystem);
-	if (songDate != NULL && songDate[0] != '\0')
-    offset += snprintf(&infoBuf[offset], 1024 - offset, "\nDate: %s", songDate);
-	// if (songComment != NULL && songComment[0] != '\0')
-  //   offset += snprintf(&infoBuf[offset], 1024 - offset, "\nComment: %s", songComment);
+  	const char* songTitle = NULL;
+  	const char* songAuthor = NULL;
+  	const char* songGame = NULL;
+  	const char* songSystem = NULL;
+  	const char* songDate = NULL;
+  	const char* songComment = NULL;
 
-  emit newSong(infoBuf);
+    const char* const* tagList = player->GetTags();
+  	for (const char* const* t = tagList; *t; t += 2)
+  	{
+  		if (!strcmp(t[0], "TITLE"))
+  			songTitle = t[1];
+  		else if (!strcmp(t[0], "ARTIST"))
+  			songAuthor = t[1];
+  		else if (!strcmp(t[0], "GAME"))
+  			songGame = t[1];
+  		else if (!strcmp(t[0], "SYSTEM"))
+  			songSystem = t[1];
+  		else if (!strcmp(t[0], "DATE"))
+  			songDate = t[1];
+  		else if (!strcmp(t[0], "COMMENT"))
+  			songComment = t[1];
+  	}
 
-	putchar('\n');
+    UINT16 offset = 0;
 
-	player->SetSampleRate(sampleRate);
-	player->Start();
-	fadeSmplTime = player->GetSampleRate() * 4;
+    // FIXME: Check that offset doesn't overflow.
+  	if (songTitle != NULL && songTitle[0] != '\0')
+  		offset += snprintf(&infoBuf[offset], 1024 - offset, "Title: %s", songTitle);
+  	if (songAuthor != NULL && songAuthor[0] != '\0')
+      offset += snprintf(&infoBuf[offset], 1024 - offset, "\nAuthor: %s", songAuthor);
+  	if (songGame != NULL && songGame[0] != '\0')
+      offset += snprintf(&infoBuf[offset], 1024 - offset, "\nGame: %s", songGame);
+  	if (songSystem != NULL && songSystem[0] != '\0')
+      offset += snprintf(&infoBuf[offset], 1024 - offset, "\nSystem: %s", songSystem);
+  	if (songDate != NULL && songDate[0] != '\0')
+      offset += snprintf(&infoBuf[offset], 1024 - offset, "\nDate: %s", songDate);
+  	// if (songComment != NULL && songComment[0] != '\0')
+    //   offset += snprintf(&infoBuf[offset], 1024 - offset, "\nComment: %s", songComment);
 
-  // TODO: Make this not hardcoded.
-	fadeSmplStart = player->Tick2Sample(player->GetTotalPlayTicks(maxLoops));
+    emit newSong(infoBuf);
 
-	if (showFileInfo)
-	{
-		PLR_SONG_INFO sInf;
-		std::vector<PLR_DEV_INFO> diList;
-		size_t curDev;
+  	putchar('\n');
 
-		player->GetSongInfo(sInf);
-		player->GetSongDeviceInfo(diList);
-		printf("SongInfo: %s v%X.%X, Rate %u/%u, Len %u, Loop at %d, devices: %u\n",
-			FCC2Str(sInf.format).c_str(), sInf.fileVerMaj, sInf.fileVerMin,
-			sInf.tickRateMul, sInf.tickRateDiv, sInf.songLen, sInf.loopTick, sInf.deviceCnt);
-		for (curDev = 0; curDev < diList.size(); curDev ++)
-		{
-			const PLR_DEV_INFO& pdi = diList[curDev];
-			printf(" Dev %d: Type 0x%02X #%d, Core %s, Clock %u, Rate %u, Volume 0x%X\n",
-				(int)pdi.id, pdi.type, (INT8)pdi.instance, FCC2Str(pdi.core).c_str(), pdi.clock, pdi.smplRate, pdi.volume);
-			if (pdi.cParams != 0)
-				printf("        CfgParams: 0x%08X\n", pdi.cParams);
-		}
-	}
+  	player->SetSampleRate(sampleRate);
+  	player->Start();
+  	fadeSmplTime = player->GetSampleRate() * 4;
 
-	if (audDrv != NULL)
-		retVal = AudioDrv_SetCallback(audDrv, FillBuffer, &player);
-	else
-		retVal = 0xFF;
-	manualRenderLoop = (retVal != 0x00);
+    // TODO: Make this not hardcoded.
+  	fadeSmplStart = player->Tick2Sample(player->GetTotalPlayTicks(maxLoops));
+
+  	if (showFileInfo)
+  	{
+  		PLR_SONG_INFO sInf;
+  		std::vector<PLR_DEV_INFO> diList;
+  		size_t curDev;
+
+  		player->GetSongInfo(sInf);
+  		player->GetSongDeviceInfo(diList);
+  		printf("SongInfo: %s v%X.%X, Rate %u/%u, Len %u, Loop at %d, devices: %u\n",
+  			FCC2Str(sInf.format).c_str(), sInf.fileVerMaj, sInf.fileVerMin,
+  			sInf.tickRateMul, sInf.tickRateDiv, sInf.songLen, sInf.loopTick, sInf.deviceCnt);
+  		for (curDev = 0; curDev < diList.size(); curDev ++)
+  		{
+  			const PLR_DEV_INFO& pdi = diList[curDev];
+  			printf(" Dev %d: Type 0x%02X #%d, Core %s, Clock %u, Rate %u, Volume 0x%X\n",
+  				(int)pdi.id, pdi.type, (INT8)pdi.instance, FCC2Str(pdi.core).c_str(), pdi.clock, pdi.smplRate, pdi.volume);
+  			if (pdi.cParams != 0)
+  				printf("        CfgParams: 0x%08X\n", pdi.cParams);
+  		}
+  	}
+
+  	if (audDrv != NULL)
+  		retVal = AudioDrv_SetCallback(audDrv, FillBuffer, &player);
+  	else
+  		retVal = 0xFF;
+  	manualRenderLoop = (retVal != 0x00);
+  #ifndef _WIN32
+  	changemode(1);
+  #endif
+  	playState &= ~PLAYSTATE_END;
+  	needRefresh = true;
+  	while(! (playState & PLAYSTATE_END))
+  	{
+  		if (! (playState & PLAYSTATE_PAUSE))
+  			needRefresh = true;	// always update when playing
+  		if (needRefresh)
+  		{
+  			const char* pState;
+
+  			if (playState & PLAYSTATE_PAUSE)
+  				pState = "Paused";
+  			else
+  				pState = "Playing";
+  			printf("%s %.2f / %.2f ...   \r", pState, player->Sample2Second(player->GetCurPos(PLAYPOS_SAMPLE)),
+  					player->Tick2Second(player->GetTotalPlayTicks(maxLoops)));
+  			fflush(stdout);
+  			needRefresh = false;
+  		}
+
+  		if (manualRenderLoop && ! (playState & PLAYSTATE_PAUSE))
+  		{
+  			UINT32 wrtBytes = FillBuffer(audDrvLog, &player, localAudBufSize, localAudBuffer);
+  			AudioDrv_WriteData(audDrvLog, wrtBytes, localAudBuffer);
+  		}
+  		else
+  		{
+  			Sleep(50);
+  		}
+
+  		if (_kbhit())
+  		{
+  			int inkey = _getch();
+  			int letter = toupper(inkey);
+
+  			if (letter == ' ' || letter == 'P')
+  			{
+  				playState ^= PLAYSTATE_PAUSE;
+  				if (audDrv != NULL)
+  				{
+  					if (playState & PLAYSTATE_PAUSE)
+  						AudioDrv_Pause(audDrv);
+  					else
+  						AudioDrv_Resume(audDrv);
+  				}
+  			}
+  			else if (letter == 'B')	// previous file
+  			{
+  				if (curSong > 0)
+  				{
+  					playState |= PLAYSTATE_END;
+  					curSong -= 2;
+  				}
+  			}
+  			else if (letter == 'N')	// next file
+  			{
+  				if (curSong + 1 < PLFileCount)
+  					playState |= PLAYSTATE_END;
+  			}
+  			else if (inkey == 0x1B || letter == 'Q')	// quit
+  			{
+  				playState |= PLAYSTATE_END;
+  				curSong = PLFileCount - 1;
+  			}
+  			needRefresh = true;
+  		}
+  	}
 #ifndef _WIN32
-	changemode(1);
+  	changemode(0);
 #endif
-	playState &= ~PLAYSTATE_END;
-	needRefresh = true;
-	while(! (playState & PLAYSTATE_END))
-	{
-		if (! (playState & PLAYSTATE_PAUSE))
-			needRefresh = true;	// always update when playing
-		if (needRefresh)
-		{
-			const char* pState;
+  	// remove callback to prevent further rendering
+  	// also waits for render thread to finish its work
+  	if (audDrv != NULL)
+  		AudioDrv_SetCallback(audDrv, NULL, NULL);
 
-			if (playState & PLAYSTATE_PAUSE)
-				pState = "Paused";
-			else
-				pState = "Playing";
-			printf("%s %.2f / %.2f ...   \r", pState, player->Sample2Second(player->GetCurPos(PLAYPOS_SAMPLE)),
-					player->Tick2Second(player->GetTotalPlayTicks(maxLoops)));
-			fflush(stdout);
-			needRefresh = false;
-		}
-
-		if (manualRenderLoop && ! (playState & PLAYSTATE_PAUSE))
-		{
-			UINT32 wrtBytes = FillBuffer(audDrvLog, &player, localAudBufSize, localAudBuffer);
-			AudioDrv_WriteData(audDrvLog, wrtBytes, localAudBuffer);
-		}
-		else
-		{
-			Sleep(50);
-		}
-
-		if (_kbhit())
-		{
-			int inkey = _getch();
-			int letter = toupper(inkey);
-
-			if (letter == ' ' || letter == 'P')
-			{
-				playState ^= PLAYSTATE_PAUSE;
-				if (audDrv != NULL)
-				{
-					if (playState & PLAYSTATE_PAUSE)
-						AudioDrv_Pause(audDrv);
-					else
-						AudioDrv_Resume(audDrv);
-				}
-			}
-			else if (letter == 'B')	// previous file
-			{
-				if (curSong > argbase)
-				{
-					playState |= PLAYSTATE_END;
-					curSong -= 2;
-				}
-			}
-			else if (letter == 'N')	// next file
-			{
-				if (curSong + 1 < argc)
-					playState |= PLAYSTATE_END;
-			}
-			else if (inkey == 0x1B || letter == 'Q')	// quit
-			{
-				playState |= PLAYSTATE_END;
-				curSong = argc - 1;
-			}
-			needRefresh = true;
-		}
-	}
-#ifndef _WIN32
-	changemode(0);
-#endif
-	// remove callback to prevent further rendering
-	// also waits for render thread to finish its work
-	if (audDrv != NULL)
-		AudioDrv_SetCallback(audDrv, NULL, NULL);
-
-	player->Stop();
-	player->UnloadFile();
-	DataLoader_Deinit(dLoad);
-	player = NULL; dLoad = NULL;
+  	player->Stop();
+  	player->UnloadFile();
+  	DataLoader_Deinit(dLoad);
+  	player = NULL; dLoad = NULL;
 	}	// end for(curSong)
 
 	delete vgmPlr;
@@ -688,3 +712,168 @@ static int _kbhit(void)
 	return FD_ISSET(STDIN_FILENO, &rdfs);;
 }
 #endif
+
+
+static bool OpenPlayListFile(const char* FileName, char*** PlayListFile)
+{
+	const char M3UV2_HEAD[] = "#EXTM3U";
+	const char M3UV2_META[] = "#EXTINF:";
+	const UINT8 UTF8_SIG[] = {0xEF, 0xBB, 0xBF};
+	UINT32 METASTR_LEN;
+	size_t RetVal;
+
+	FILE* hFile;
+	UINT32 LineNo;
+	bool IsV2Fmt;
+	UINT32 PLAlloc;
+	char TempStr[0x1000];	// 4096 chars should be enough
+	char* RetStr;
+	bool IsUTF8;
+
+	hFile = fopen(FileName, "rt");
+	if (hFile == NULL)
+		return false;
+
+	RetVal = fread(TempStr, 0x01, 0x03, hFile);
+	if (RetVal >= 0x03)
+		IsUTF8 = ! memcmp(TempStr, UTF8_SIG, 0x03);
+	else
+		IsUTF8 = false;
+
+	rewind(hFile);
+
+	PLAlloc = 0x0100;
+	PLFileCount = 0x00;
+	LineNo = 0x00;
+	IsV2Fmt = false;
+	METASTR_LEN = strlen(M3UV2_META);
+	(* PlayListFile) = (char**)malloc(PLAlloc * sizeof(char*));
+	while(! feof(hFile))
+	{
+		RetStr = fgets(TempStr, 0x1000, hFile);
+		if (RetStr == NULL)
+			break;
+		//RetStr = strchr(TempStr, 0x0D);
+		//if (RetStr)
+		//	*RetStr = 0x00;	// remove NewLine-Character
+		RetStr = TempStr + strlen(TempStr) - 0x01;
+		while(RetStr >= TempStr && *RetStr < 0x20)
+		{
+			*RetStr = '\0';	// remove NewLine-Characters
+			RetStr --;
+		}
+		if (! strlen(TempStr))
+			continue;
+
+		if (! LineNo)
+		{
+			if (! strcmp(TempStr, M3UV2_HEAD))
+			{
+				IsV2Fmt = true;
+				LineNo ++;
+				continue;
+			}
+		}
+		if (IsV2Fmt)
+		{
+			if (! strncmp(TempStr, M3UV2_META, METASTR_LEN))
+			{
+				// Ignore Metadata of m3u Version 2
+				LineNo ++;
+				continue;
+			}
+		}
+
+		if (PLFileCount >= PLAlloc)
+		{
+			PLAlloc += 0x0100;
+			(* PlayListFile) = (char**)realloc((* PlayListFile), PLAlloc * sizeof(char*));
+		}
+
+		// TODO:
+		//	- supprt UTF-8 m3us under Windows
+		//	- force IsUTF8 via Commandline
+#ifdef WIN32
+		// Windows uses the 1252 Codepage by default
+		(* PlayListFile)[PLFileCount] = (char*)malloc((strlen(TempStr) + 0x01) * sizeof(char));
+		strcpy((* PlayListFile)[PLFileCount], TempStr);
+#else
+		if (! IsUTF8)
+		{
+			// Most recent Linux versions use UTF-8, so I need to convert all strings.
+			ConvertCP1252toUTF8(PlayListFile[PLFileCount], TempStr);
+		}
+		else
+		{
+			(* PlayListFile)[PLFileCount] = (char*)malloc((strlen(TempStr) + 0x01) * sizeof(char));
+			strcpy((* PlayListFile)[PLFileCount], TempStr);
+		}
+#endif
+		StandardizeDirSeparators((* PlayListFile)[PLFileCount]);
+		PLFileCount ++;
+		LineNo ++;
+	}
+
+	fclose(hFile);
+
+	RetStr = GetLastDirSeparator(FileName);
+	if (RetStr != NULL)
+	{
+		RetStr ++;
+		strncpy(PLFileBase, FileName, RetStr - FileName);
+		PLFileBase[RetStr - FileName] = '\0';
+		StandardizeDirSeparators(PLFileBase);
+	}
+	else
+	{
+		strcpy(PLFileBase, "");
+	}
+
+  printf("%s", PLFileBase);
+
+	return true;
+}
+
+static void StandardizeDirSeparators(char* FilePath)
+{
+	char* CurChr;
+
+	CurChr = FilePath;
+	while(*CurChr != '\0')
+	{
+		if (*CurChr == '\\' || *CurChr == '/')
+			*CurChr = DIR_CHR;
+		CurChr ++;
+	}
+
+	return;
+}
+
+char* GetLastDirSeparator(const char* FilePath)
+{
+	char* SepPos1;
+	char* SepPos2;
+
+	SepPos1 = strrchr(FilePath, '/');
+	SepPos2 = strrchr(FilePath, '\\');
+	if (SepPos1 < SepPos2)
+		return SepPos2;
+	else
+		return SepPos1;
+}
+
+static bool IsAbsolutePath(const char* FilePath)
+{
+#ifdef WIN32
+	if (FilePath[0] == '\0')
+		return false;	// empty string
+	if (FilePath[1] == ':')
+		return true;	// Device Path: C:\path
+	if (! strncmp(FilePath, "\\\\", 2))
+		return true;	// Network Path: \\computername\path
+#else
+	if (FilePath[0] == '/')
+		return true;	// absolute UNIX path
+#endif
+	return false;
+}
