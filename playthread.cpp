@@ -95,6 +95,31 @@ PlayThread::PlayThread() {
   player = new VGMPlayer;
 }
 
+void PlayThread::postKeyCode(int key) {
+  keyMutex.lock();
+  keyCode = key;
+  keyPressed = true;
+  keyMutex.unlock();
+}
+
+bool PlayThread::kbPress(int * key) {
+  if(!keyMutex.tryLock())
+  {
+    return false;
+  }
+
+  if(keyPressed)
+  {
+    (* key) = keyCode;
+    keyPressed = false;
+    keyMutex.unlock();
+    return true;
+  }
+
+  keyMutex.unlock();
+  return false;
+}
+
 void PlayThread::setM3u(const char * fileName) {
   m3uFile = fileName;
 }
@@ -296,12 +321,10 @@ void PlayThread::run() {
   			Sleep(50);
   		}
 
-  		if (_kbhit())
+      int inkey;
+  		if (kbPress(&inkey))
   		{
-  			int inkey = _getch();
-  			int letter = toupper(inkey);
-
-  			if (letter == ' ' || letter == 'P')
+  			if (inkey == Qt::Key_Space || inkey == Qt::Key_P)
   			{
   				playState ^= PLAYSTATE_PAUSE;
   				if (audDrv != NULL)
@@ -312,23 +335,23 @@ void PlayThread::run() {
   						AudioDrv_Resume(audDrv);
   				}
   			}
-  			else if (letter == 'B')	// previous file
+  			else if (inkey == Qt::Key_B)	// previous file
   			{
-  				if (curSong > 0)
+  				if (CurPLFile > 0)
   				{
   					playState |= PLAYSTATE_END;
-  					curSong -= 2;
+  					CurPLFile -= 2;
   				}
   			}
-  			else if (letter == 'N')	// next file
+  			else if (inkey == Qt::Key_N)	// next file
   			{
-  				if (curSong + 1 < PLFileCount)
+  				if (CurPLFile + 1 < PLFileCount)
   					playState |= PLAYSTATE_END;
   			}
-  			else if (inkey == 0x1B || letter == 'Q')	// quit
+  			else if ( /* inkey == 0x1B || */ inkey == Qt::Key_Q)	// quit
   			{
   				playState |= PLAYSTATE_END;
-  				curSong = PLFileCount - 1;
+  				CurPLFile = PLFileCount - 1;
   			}
   			needRefresh = true;
   		}

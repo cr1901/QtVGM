@@ -16,6 +16,7 @@ public:
     QtVGM(QWidget *parent = nullptr);
     ~QtVGM();
     void startPlayer(const char * playList);
+    void keyPressEvent(QKeyEvent *event);
 
 private slots:
   void newSong(const char* tagList);
