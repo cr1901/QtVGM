@@ -7,16 +7,23 @@ QtVGM::QtVGM(QWidget *parent)
     , ui(new Ui::QtVGM)
 {
     ui->setupUi(this);
-    PlayThread * playThread = new PlayThread();
+    playThread = new PlayThread();
 
     connect(playThread, &PlayThread::newSong, this, &QtVGM::newSong);
     connect(playThread, &PlayThread::finished, playThread, &QObject::deleteLater);
-    playThread->start();
 }
 
 QtVGM::~QtVGM()
 {
     delete ui;
+    // delete playThread; // FIXME: Should be stopped before running this.
+                          // How do I guarantee it?
+}
+
+void QtVGM::startPlayer(const char * playList)
+{
+  playThread->setM3u(playList);
+  playThread->start();
 }
 
 void QtVGM::newSong(const char* const* tagList)

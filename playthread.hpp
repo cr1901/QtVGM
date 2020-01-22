@@ -3,21 +3,23 @@
 
 #include <QObject>
 #include <QThread>
+#include <player/vgmplayer.hpp>
 
 
 class PlayThread : public QThread
 {
     Q_OBJECT
+    VGMPlayer * player;
+    const char * m3uFile = NULL;
 
-    const char * test[1] = { "Test" };
-
-    void run() override {
-
-      emit newSong(test);
-    }
+    void run() override;
 
     signals:
       void newSong(const char* const* tagList);
+
+    public:
+      PlayThread();
+      void setM3u(const char * fileName);
 };
 
 #endif

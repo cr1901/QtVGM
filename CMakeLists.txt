@@ -25,9 +25,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 #endif()
 
 find_package(Qt5 COMPONENTS Widgets REQUIRED Core REQUIRED)
+find_package(iconv)
+find_package(zlib)
 find_library(LIBVGM_PLAYER NAMES vgm-player)
 find_library(LIBVGM_EMU NAMES vgm-emu)
 find_library(LIBVGM_AUDIO NAMES vgm-audio)
+find_library(LIBVGM_UTILS NAMES vgm-utils)
 
 add_executable(qtvgm
   main.cpp
@@ -38,5 +41,8 @@ add_executable(qtvgm
   qtvgm.ui
 )
 
+# FIXME: Audio libraries should be gated based on OS.
+# See audio/CMakeLists.txt.
 target_link_libraries(qtvgm PRIVATE Qt5::Widgets Qt5::Core ${LIBVGM_PLAYER}
-  ${LIBVGM_EMU} ${LIBVGM_AUDIO})
+  ${LIBVGM_EMU} ${LIBVGM_AUDIO} ${LIBVGM_UTILS} ${Iconv_LIBRARIES}
+  ${ZLIB_LIBRARIES} winmm dsound uuid)
